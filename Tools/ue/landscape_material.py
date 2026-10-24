@@ -1,5 +1,5 @@
 """Landscape material for JBI_World: grass, trampled dirt, forest floor, paving and water,
-painted from the real land-use masks (MapData/textures/landscape_masks.png, R=paths G=forest B=dirt A=water).
+painted from the real land-use masks (MapData/masks/landscape_masks.png from build_jbi.py, R=paths G=forest B=dirt A=water).
 
 Run in the Unreal Editor with JBI_World open, after apply_city_look.py (needs its textures).
 """
@@ -17,7 +17,9 @@ mel = unreal.MaterialEditingLibrary
 eal = unreal.EditorAssetLibrary
 
 t = unreal.AssetImportTask()
-t.filename = os.path.join(PROJECT, "MapData", "textures", "landscape_masks.png")
+t.filename = os.path.join(PROJECT, "MapData", "masks", "landscape_masks.png")
+if not os.path.exists(t.filename):
+    t.filename = os.path.join(PROJECT, "MapData", "textures", "landscape_masks.png")
 t.destination_path, t.automated, t.replace_existing, t.save = TEX_DEST, True, True, True
 assets.import_asset_tasks([t])
 masks = unreal.load_asset(TEX_DEST + "/landscape_masks")

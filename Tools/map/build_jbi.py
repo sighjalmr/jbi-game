@@ -273,6 +273,9 @@ m_water = mask([g.buffer(2) if g.geom_type.endswith('LineString') else g for g i
 m_forest = mask(land.get('forest', []) + land.get('tree', []) + land.get('shrub', []), 'mask_forest.png')
 m_grass = mask(landuse.get('managed', []) + landuse.get('park', []) + landuse.get('recreation', []) + land.get('grass', []), 'mask_grass.png')
 m_dirt = mask(landuse.get('construction', []) + landuse.get('developed', []) + land.get('sand', []), 'mask_dirt_industrial.png')
+# Packed for the landscape material (Tools/ue/landscape_material.py): R=paths G=forest B=dirt A=water.
+packed = np.dstack([np.clip(gaussian_filter(c.astype(float), 1.5), 0, 255) for c in (m_path, m_forest, m_dirt, m_water)])
+Image.fromarray(packed.astype(np.uint8), 'RGBA').resize((4096, 4096), Image.BILINEAR).save(f'{OUT}/masks/landscape_masks.png')
 
 # ---------------------------------------------------------------- meshes (glTF Y-up)
 # (east, north, up) -> glTF (east, up, -north). Unreal 5.8's glTF importer maps glTF (x, y, z) to UE (x, z, y)

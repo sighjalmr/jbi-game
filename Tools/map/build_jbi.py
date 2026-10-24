@@ -68,7 +68,7 @@ info = {
     'row0': 'north edge', 'col0': 'west edge',
     'unreal_landscape_import': {
         'scale_xyz': [100.0, 100.0, round(zscale, 4)],
-        'location_xyz_cm': [-HALF * 100, -HALF * 100, round(rng * 100 / 2, 2)],
+        'location_xyz_cm': [0.0, 0.0, round(rng * 100 / 2, 2)],  # UE treats import Location as the landscape centre
         'section_size': '63x63 quads', 'sections_per_component': '1x1', 'components': '64x64',
     },
 }
@@ -219,9 +219,9 @@ m_grass = mask(landuse.get('managed', []) + landuse.get('park', []) + landuse.ge
 m_dirt = mask(landuse.get('construction', []) + landuse.get('developed', []) + land.get('sand', []), 'mask_dirt_industrial.png')
 
 # ---------------------------------------------------------------- meshes (glTF Y-up)
-# (east, north, up) -> glTF (north, up, east). Assuming Unreal's glTF importer maps glTF (x, y, z) to UE (z, -x, y),
-# meshes land as UE X = east, Y = south, matching the landscape (row 0 = north = -Y). Verify with alignment_markers.glb.
-ZUP_TO_YUP = np.array([[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]], float)
+# (east, north, up) -> glTF (east, up, -north). Unreal 5.8's glTF importer maps glTF (x, y, z) to UE (x, z, y)
+# (checked in the editor), so meshes land as UE X = east, Y = south, matching the landscape (row 0 = north = -Y).
+ZUP_TO_YUP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], float)
 COLORS = {'buildings': [200, 196, 186, 255], 'road': [60, 60, 64, 255], 'path': [150, 140, 120, 255], 'rail': [110, 90, 70, 255]}
 
 def export(meshes, name, color):

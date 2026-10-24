@@ -28,7 +28,7 @@
 1. **File → New Level → Empty Open World**, сохрани как `Content/JBI/Maps/JBI_World`.
 2. **Ландшафт**: Landscape Mode → Manage → Import from File → `MapData/heightmap/jbi_heightmap_4033.png`.
    - Section Size 63×63, Sections per Component 1×1, Components 64×64.
-   - Location: X `-201600`, Y `-201600`, Z `6507.57`.
+   - Location: X `0`, Y `0`, Z `6507.57` (Unreal ставит ландшафт центром в эту точку).
    - Scale: X `100`, Y `100`, Z `25.4202`.
 3. **Здания и дороги**: Tools → Execute Python Script → `Tools/ue/import_map_meshes.py`. Скрипт импортирует все `.glb` и ставит их в (0,0,0).
 4. **Проверка совмещения**: красные столбы (`alignment_markers`) должны стоять в углах ландшафта, стрелка смотрит на север, к Шарташу. Если нет, поверни все меши карты одинаково на 90° по Z.

@@ -52,6 +52,8 @@ rng = hmax - hmin
 h16 = np.round((dst - hmin) / rng * 65535).astype(np.uint16)
 Image.fromarray(h16).save(f'{OUT}/heightmap/jbi_heightmap_{SIZE}.png')
 h16.astype('<u2').tofile(f'{OUT}/heightmap/jbi_heightmap_{SIZE}.r16')
+# Light version, 2 m per px: the full one can crash the editor on mid-range GPUs.
+Image.fromarray(h16[::2, ::2]).save(f'{OUT}/heightmap/jbi_heightmap_{SIZE // 2 + 1}.png')
 terrain = dst - hmin   # metres above lowest point
 
 def ground(x, y):
@@ -70,6 +72,13 @@ info = {
         'scale_xyz': [100.0, 100.0, round(zscale, 4)],
         'location_xyz_cm': [0.0, 0.0, round(rng * 100 / 2, 2)],  # UE treats import Location as the landscape centre
         'section_size': '63x63 quads', 'sections_per_component': '1x1', 'components': '64x64',
+    },
+    'unreal_landscape_import_light': {
+        'file': f'jbi_heightmap_{SIZE // 2 + 1}.png',
+        'scale_xyz': [200.0, 200.0, round(zscale, 4)],
+        'location_xyz_cm': [0.0, 0.0, round(rng * 100 / 2, 2)],
+        'section_size': '63x63 quads', 'sections_per_component': '1x1', 'components': '32x32',
+        'world_partition_region_size': 32,
     },
 }
 json.dump(info, open(f'{OUT}/heightmap/heightmap_info.json', 'w'), ensure_ascii=False, indent=2)

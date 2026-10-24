@@ -40,7 +40,8 @@
 4. **Проверка совмещения**: красные столбы (`alignment_markers`) должны стоять в углах ландшафта. Если меши импортированы до исправления осей, поверни их все на −90° по Z.
 5. **Небо и свет**: Window → Env. Light Mixer → создай Sky Light, Directional Light, Sky Atmosphere, Height Fog. Height Fog поставь на высоту Z ≈ 9000, иначе карта утонет в тумане.
 6. **Рельсы**: перетащи в уровень `MapDataSpawner` (Place Actors → All Classes) и нажми **Spawn Rails** в Details.
-7. **Старт**: поставь Player Start у лестниц на Высоцкого (X ≈ -23000, Y ≈ -131200, Z ≈ 11400). Жми Play.
+7. **Внешний вид**: `python3 Tools/art/gen_facades.py MapData/textures` и `python3 Tools/art/gen_ground.py MapData/textures` рисуют текстуры фасадов и земли. Затем в Unreal выполни `Tools/ue/apply_city_look.py` (материалы, здания с фасадами, дороги) и `Tools/ue/landscape_material.py` (покраска рельефа по маскам района).
+8. **Старт**: поставь Player Start у лестниц на Высоцкого (X ≈ -23000, Y ≈ -131200, Z ≈ 11400). Жми Play.
 
 ## Управление
 

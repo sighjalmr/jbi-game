@@ -1,0 +1,28 @@
+# Unreal Engine
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.sdf
+*.VC.db
+*.opensdf
+*.xcworkspace
+*.xcodeproj
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+
+# Big raw heightmap: regenerate with Tools/map/build_jbi.py
+*.r16

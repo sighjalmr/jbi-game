@@ -1,0 +1,34 @@
+{
+  "source": "Copernicus GLO-30 DSM, smoothed (sigma 25 m), resampled to 1 m",
+  "size_px": 4033,
+  "metres_per_px": 1.0,
+  "crs": "EPSG:32641 (UTM 41N)",
+  "center_lonlat": [
+    60.683,
+    56.8315
+  ],
+  "center_utm": [
+    358627.10428855394,
+    6301022.822992588
+  ],
+  "elevation_min_m": 179.10458374023438,
+  "elevation_max_m": 309.2559814453125,
+  "elevation_range_m": 130.15139770507812,
+  "row0": "north edge",
+  "col0": "west edge",
+  "unreal_landscape_import": {
+    "scale_xyz": [
+      100.0,
+      100.0,
+      25.4202
+    ],
+    "location_xyz_cm": [
+      -201600.0,
+      -201600.0,
+      6507.57
+    ],
+    "section_size": "63x63 quads",
+    "sections_per_component": "1x1",
+    "components": "64x64"
+  }
+}

@@ -120,6 +120,51 @@ def est_height(r, area):
     if area < 700: return 12.0, 'area_guess'
     return 28.0, 'area_guess'  # big footprints in ЖБИ are mostly 9-storey panel blocks
 
+# Facade texture tile sizes in metres, must match Tools/art/gen_facades.py.
+FACADE_TILE = {'panel': (12.8, 8.4), 'khrush': (12.0, 8.4), 'public': (12.0, 7.2), 'garage': (9.6, 3.0),
+               'industrial': (12.0, 6.0)}
+ROOF_TILE = 4.0
+PUBLIC = {'school', 'kindergarten', 'college', 'university', 'hospital', 'clinic', 'civic', 'public', 'government',
+          'retail', 'commercial', 'office', 'train_station', 'church', 'sports_hall', 'supermarket'}
+SMALL = {'garage', 'garages', 'shed', 'carport', 'hut', 'service', 'transformer_tower', 'kiosk', 'roof', 'greenhouse'}
+INDUSTRIAL = {'industrial', 'warehouse', 'manufacture', 'factory', 'hangar'}
+
+def facade_type(r, area, h):
+    c = r.get('class')
+    if c in PUBLIC: return 'public'
+    if c in SMALL or h <= 4: return 'garage'
+    if c in INDUSTRIAL or (area > 1500 and h < 20 and c not in ('apartments', 'residential', 'dormitory')): return 'industrial'
+    if h >= 20: return 'panel'
+    return 'khrush'
+
+def building_parts(p, base, top, ftype):
+    """Walls with UVs in facade tiles (one tile = FACADE_TILE metres) and a flat roof with UVs in ROOF_TILE metres."""
+    tw, th = FACADE_TILE[ftype]
+    g0 = base + 0.5  # lowest ground under the footprint: floors start here
+    p = shapely.geometry.polygon.orient(p, 1.0)
+    V, F, UV = [], [], []
+    for ring in [p.exterior, *p.interiors]:
+        c = np.array(ring.coords)[:, :2]
+        u = 0.0
+        for a, b in zip(c[:-1], c[1:]):
+            L = float(np.hypot(*(b - a)))
+            if L < 1e-3: continue
+            i = len(V)
+            V += [[a[0], a[1], base], [b[0], b[1], base], [b[0], b[1], top], [a[0], a[1], top]]
+            UV += [[u / tw, -(base - g0) / th], [(u + L) / tw, -(base - g0) / th],
+                   [(u + L) / tw, -(top - g0) / th], [u / tw, -(top - g0) / th]]
+            F += [[i, i + 1, i + 2], [i, i + 2, i + 3]]
+            u += L
+    walls = trimesh.Trimesh(np.array(V), np.array(F), process=False)
+    walls.visual = trimesh.visual.TextureVisuals(uv=np.array(UV))
+    v, f = trimesh.creation.triangulate_polygon(p, engine='earcut')
+    a, b, c3 = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+    flip = ((b - a)[:, 0] * (c3 - a)[:, 1] - (b - a)[:, 1] * (c3 - a)[:, 0]) < 0
+    f[flip] = f[flip][:, ::-1]
+    roof = trimesh.Trimesh(np.column_stack([v, np.full(len(v), top)]), f, process=False)
+    roof.visual = trimesh.visual.TextureVisuals(uv=v / ROOF_TILE)
+    return walls, roof
+
 bfeats, bmeshes = [], {}
 for r in load('buildings_building'):
     if r.get('is_underground'): continue
@@ -129,20 +174,21 @@ for r in load('buildings_building'):
         p = shapely.make_valid(p.simplify(0.2))
         for p in polys(p):
             h, how = est_height(r, p.area)
+            ftype = facade_type(r, p.area, h)
             xs, ys = np.array(p.exterior.coords).T
             base = float(ground(xs, ys).min()) - 0.5
             bfeats.append({'type': 'Feature', 'geometry': mapping(p), 'properties': {
                 'id': r['id'], 'name': name_of(r), 'class': r.get('class'), 'height_m': h, 'height_source': how,
-                'floors': r.get('num_floors'), 'base_z_m': round(base, 2),
+                'floors': r.get('num_floors'), 'base_z_m': round(base, 2), 'facade': ftype,
                 'source': r['sources'][0]['dataset'] if r.get('sources') else None}})
             try:
-                m = trimesh.creation.extrude_polygon(p, h + 0.5)
+                walls, roof = building_parts(p, base, base + h + 0.5, ftype)
             except Exception:
                 continue
-            m.apply_translation([0, 0, base])
             c = p.centroid
             key = (min(max(int((c.x + HALF) // TILE), 0), 3), min(max(int((c.y + HALF) // TILE), 0), 3))
-            bmeshes.setdefault(key, []).append(m)
+            bmeshes.setdefault((ftype,) + key, []).append(walls)
+            bmeshes.setdefault(('roof',) + key, []).append(roof)
 write_geojson('buildings.geojson', bfeats)
 
 # ---------------------------------------------------------------- roads & rail
@@ -176,6 +222,7 @@ def drape(polyset, lift):
             continue
         z = ground(v[:, 0], v[:, 1]) + lift
         m = trimesh.Trimesh(np.column_stack([v, z]), f, process=False)
+        m.visual = trimesh.visual.TextureVisuals(uv=v / ROOF_TILE)  # 4 m texture tiles, world-aligned
         # split big road networks by tile of each face centroid
         cen = m.triangles_center
         keys = np.clip(np.floor((cen[:, :2] + HALF) / TILE).astype(int), 0, 3)
@@ -236,17 +283,20 @@ COLORS = {'buildings': [200, 196, 186, 255], 'road': [60, 60, 64, 255], 'path': 
 def export(meshes, name, color):
     if not meshes: return 0
     m = trimesh.util.concatenate(meshes)
-    m.visual = trimesh.visual.ColorVisuals(m, face_colors=color)
+    if color is None:  # textured: keep UVs, Unreal assigns the material by mesh name
+        m.visual = trimesh.visual.TextureVisuals(uv=m.visual.uv, material=trimesh.visual.material.PBRMaterial(name=name.rsplit('_', 2)[0]))
+    else:
+        m.visual = trimesh.visual.ColorVisuals(m, face_colors=color)
     m.apply_transform(ZUP_TO_YUP)
     m.export(f'{OUT}/meshes/{name}.glb')
     return len(m.faces)
 
 stats = {}
-for k, ms in bmeshes.items():
-    stats[f'buildings_{k[0]}_{k[1]}'] = export(ms, f'buildings_{k[0]}_{k[1]}', COLORS['buildings'])
+for (ftype, kx, ky), ms in bmeshes.items():
+    stats[f'bld_{ftype}_{kx}_{ky}'] = export(ms, f'bld_{ftype}_{kx}_{ky}', None)
 for kind, tiles in road_layers.items():
     for k, ms in tiles.items():
-        stats[f'{kind}_{k[0]}_{k[1]}'] = export(ms, f'{kind}_{k[0]}_{k[1]}', COLORS[kind])
+        stats[f'{kind}_{k[0]}_{k[1]}'] = export(ms, f'{kind}_{k[0]}_{k[1]}', None)
 
 # alignment markers: 4 corner pillars + north arrow, sitting on the terrain
 mk = []

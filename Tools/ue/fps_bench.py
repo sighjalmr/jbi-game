@@ -28,14 +28,8 @@ def trees(visible):
 BASE = ["grass.Enable 1", "r.Skinning.DefaultAnimationMinScreenSize 0.1", "r.Shadow.Virtual.Enable 1",
         "grass.CullDistanceScale 1", "r.Shadow.Virtual.ResolutionLodBiasDirectional -0.5", "r.ScreenPercentage 100",
         "sg.GlobalIlluminationQuality 3", "sg.ShadowQuality 3", "sg.FoliageQuality 3", "sg.ReflectionQuality 3"]
-STEPS = [
-    ("base", BASE, None),
-    ("gi_high", BASE + ["sg.GlobalIlluminationQuality 2"], None),
-    ("shadow_high", BASE + ["sg.ShadowQuality 2"], None),
-    ("foliage_high", BASE + ["sg.FoliageQuality 2"], None),
-    ("sp75", BASE + ["r.ScreenPercentage 75"], None),
-    ("base2", BASE, None),
-]
+OPT = BASE + ["sg.GlobalIlluminationQuality 2", "r.ScreenPercentage 75"]  # = Config/DefaultGameUserSettings.ini
+STEPS = [("base", BASE, None), ("opt", OPT, None), ("base2", BASE, None), ("opt2", OPT, None)]
 STEPS = globals().get("BENCH_STEPS", STEPS)
 
 state = {"i": 0, "t": 0.0, "phase": "set", "h": None}

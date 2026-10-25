@@ -5,6 +5,7 @@ Real map data of the JBI district (Yekaterinburg), 4 x 4 km, built by `Tools/map
 | Path | What |
 |---|---|
 | `heightmap/jbi_heightmap_4033.png` | 16-bit landscape heightmap, 1 px = 1 m, row 0 = north |
+| `heightmap/jbi_heightmap_2017.png` | Same, 1 px = 2 m. Lighter, use this one on mid-range GPUs |
 | `heightmap/heightmap_info.json` | Landscape import scale/location |
 | `masks/*.png` | Landscape paint layers (asphalt, paths, grass, forest, water, dirt) |
 | `meshes/*.glb` | Building boxes, roads, paths, rails in 1 km tiles + `alignment_markers.glb` |

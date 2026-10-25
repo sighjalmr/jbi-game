@@ -23,12 +23,29 @@
       25.4202
     ],
     "location_xyz_cm": [
-      -201600.0,
-      -201600.0,
+      0.0,
+      0.0,
       6507.57
     ],
     "section_size": "63x63 quads",
     "sections_per_component": "1x1",
     "components": "64x64"
+  },
+  "unreal_landscape_import_light": {
+    "file": "jbi_heightmap_2017.png",
+    "scale_xyz": [
+      200.0,
+      200.0,
+      25.4202
+    ],
+    "location_xyz_cm": [
+      0.0,
+      0.0,
+      6507.57
+    ],
+    "section_size": "63x63 quads",
+    "sections_per_component": "1x1",
+    "components": "32x32",
+    "world_partition_region_size": 32
   }
 }

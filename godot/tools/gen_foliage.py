@@ -91,12 +91,12 @@ print('ok')
 W, H = 256, 128
 im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
 d = ImageDraw.Draw(im)
-for _ in range(220):
-    x = rnd.uniform(4, W - 4); h = rnd.uniform(0.35, 1.0) * H; lean = rnd.uniform(-30, 30)
+for _ in range(80):
+    x = rnd.uniform(20, W - 20); h = rnd.uniform(0.3, 1.0) * H; lean = rnd.uniform(-24, 24)
     shade = rnd.uniform(0.6, 1.15)
     base = rnd.choice([(84, 112, 44), (104, 124, 52), (120, 120, 60), (70, 98, 40)])
     col = tuple(int(min(255, c * shade)) for c in base) + (255,)
-    w = rnd.uniform(2, 4)
+    w = rnd.uniform(1.2, 2.2)
     d.polygon([(x - w, H), (x + w, H), (x + lean, H - h)], fill=col)
 rgb = im.convert('RGB').filter(ImageFilter.MaxFilter(5))
 Image.merge('RGBA', (*rgb.split(), im.split()[3])).save(f'{OUT}/grass_clump.png')

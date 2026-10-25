@@ -30,10 +30,11 @@ masks.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
 eal.save_loaded_asset(masks)
 
 PATH = MAT_DEST + "/M_JBI_Landscape"
-if eal.does_asset_exist(PATH):
-    eal.delete_asset(PATH)
-mat = assets.create_asset("M_JBI_Landscape", MAT_DEST, unreal.Material, unreal.MaterialFactoryNew())
-X = [-2400]
+if eal.does_asset_exist(PATH):      # in use by the landscape, so clear it in place instead of deleting
+    mat = unreal.load_asset(PATH)
+    mel.delete_all_material_expressions(mat)
+else:
+    mat = assets.create_asset("M_JBI_Landscape", MAT_DEST, unreal.Material, unreal.MaterialFactoryNew())
 
 def node(cls, x, y, **props):
     n = mel.create_material_expression(mat, cls, x, y)
@@ -78,7 +79,7 @@ grass_macro = surface("grass", -900, uv_macro)
 dirt = surface("dirt", -200, uv_tile)
 forest = surface("forest", 500, uv_tile)
 paving = surface("paving", 1200, uv_tile)
-water_col = node(unreal.MaterialExpressionConstant3Vector, -1400, 1900, constant=unreal.LinearColor(0.03, 0.045, 0.05, 1))
+water_col = node(unreal.MaterialExpressionConstant3Vector, -1400, 1900, constant=unreal.LinearColor(0.04, 0.12, 0.18, 1))
 water_n = node(unreal.MaterialExpressionConstant3Vector, -1400, 2000, constant=unreal.LinearColor(0, 0, 1, 1))
 water_r = node(unreal.MaterialExpressionConstant, -1400, 2100, r=0.05)
 

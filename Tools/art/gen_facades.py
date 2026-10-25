@@ -24,6 +24,7 @@ FACADES = {
     'garage':     {'size_m': (9.6, 3.0)},    # garage rows: block wall + metal gates
     'industrial': {'size_m': (12.0, 6.0)},   # ЖБИ plant halls: corrugated sheet + ribbon windows
     'roof':       {'size_m': (4.0, 4.0)},    # flat bitumen roof with gravel
+    'trim':       {'size_m': (4.0, 4.0)},    # plinths, parapets, lift machine rooms: weathered cast concrete
 }
 
 def noise(shape, sigma, amp=1.0):
@@ -172,6 +173,18 @@ for i in range(10):
 rect(col, 0, 5.0, 12.0, 6.0, (120, 118, 112)); rect(hgt, 0, 5.0, 12.0, 6.0, 0.1)  # concrete plinth
 col = grime(col, 0.22)
 save('industrial', col, hgt, rough)
+
+# ------------------------------------------------------------------ trim: cast concrete, formwork joints, damp stains
+col, hgt, rough = base('trim', (150, 147, 140), 9, 0.9)
+H, W = canvas('trim')
+for x in np.arange(0, 4.0, 1.0):  # formwork board joints
+    rect(col, x, 0, x + 0.02, 4.0, (120, 117, 111)); rect(hgt, x, 0, x + 0.02, 4.0, -0.2)
+pores = rng.random((H, W)) < 0.03
+col[pores] *= 0.75; hgt[pores] -= 0.3
+damp = np.clip(noise((H, W), 25, 0.5), 0, 1)[..., None]  # damp patches (no gradient: the tile must wrap)
+col = col * (1 - 0.15 * damp)
+col = grime(col, 0.18)
+save('trim', col, hgt, rough)
 
 # ------------------------------------------------------------------ flat roof: bitumen with gravel
 col, hgt, rough = base('roof', (62, 60, 58), 10, 0.9)

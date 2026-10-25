@@ -2,7 +2,7 @@
 
 Run in the Unreal Editor with JBI_World open. Needs the free Fab items "Megaplants: Silver Birch" and
 "Megaplants: Baltic Pine" in the project (they import as skinned Nanite trees with wind).
-One actor per 256 m cell in the outliner folder "Trees", so World Partition streams them;
+One actor per 1 km cell in the outliner folder "Trees", so World Partition streams them;
 each holds an InstancedSkinnedMeshComponent per tree variant. Re-running replaces the old trees.
 """
 import csv
@@ -11,7 +11,7 @@ from collections import defaultdict
 
 import unreal
 
-CELL_CM = 25600.0
+CELL_CM = 102400.0                 # big cells: every component costs a slot in the GPU skinning buffer
 MESHES = {"birch": "/Game/Megaplant_Library/Tree_Silver_Birch/Tree_Silver_Birch_01/Tree_Silver_Birch_01_",
           "pine": "/Game/Megaplant_Library/Tree_Baltic_Pine/Tree_Baltic_Pine_01/Tree_Baltic_Pine_01_"}
 END_CULL_CM = 60000

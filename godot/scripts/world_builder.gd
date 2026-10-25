@@ -73,15 +73,28 @@ func mat(name: String, tex := "", opts := {}) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	if tex != "":
 		m.albedo_texture = load(TEX + tex + ".png")
-	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.vertex_color_use_as_albedo = true
-	m.roughness = 1.0
-	m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	m.roughness = 0.9
 	for k in opts:
 		m.set(k, opts[k])
 	_mats[name] = m
 	return m
+
+
+## PBR material from textures/pbr/<set>_albedo/_normal/_rough (see tools/import_pbr.py).
+func pbr(name: String, set_name: String, opts := {}) -> StandardMaterial3D:
+	if _mats.has(name):
+		return _mats[name]
+	var base := TEX + "pbr/" + set_name
+	var o := {
+		"albedo_texture": load(base + "_albedo.jpg"),
+		"normal_enabled": true, "normal_texture": load(base + "_normal.png"),
+		"roughness": 1.0, "roughness_texture": load(base + "_rough.jpg"),
+		"roughness_texture_channel": BaseMaterial3D.TEXTURE_CHANNEL_GRAYSCALE,
+	}
+	o.merge(opts, true)
+	return mat(name, "", o)
 
 
 func _v2(a) -> Vector2:
@@ -150,9 +163,10 @@ func _beam(st: SurfaceTool, a: Vector3, b: Vector3, w: float, h: float, col: Col
 func _add_mesh(st: SurfaceTool, m: Material, collide := false, name := "") -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = name
+	if m is BaseMaterial3D and m.normal_enabled:
+		st.generate_tangents()
 	mi.mesh = st.commit()
 	mi.material_override = m
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 	if collide:
 		var body := StaticBody3D.new()
@@ -172,6 +186,7 @@ func _build_terrain() -> void:
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var cols := PackedColorArray()
+	var tangents := PackedFloat32Array()
 	for j in n:
 		for i in n:
 			var x := -half + i * step
@@ -181,6 +196,8 @@ func _build_terrain() -> void:
 			var dx := height_at(x + 1, z) - height_at(x - 1, z)
 			var dz := height_at(x, z + 1) - height_at(x, z - 1)
 			normals.append(Vector3(-dx, 2.0, -dz).normalized())
+			var t := Vector3(2.0, dx, 0.0).normalized()
+			tangents.append_array([t.x, t.y, t.z, -1.0])
 			uvs.append(Vector2(float(i) / (n - 1), float(j) / (n - 1)))
 			cols.append(Color.WHITE)
 	var idx := PackedInt32Array()
@@ -195,14 +212,14 @@ func _build_terrain() -> void:
 	arr[Mesh.ARRAY_NORMAL] = normals
 	arr[Mesh.ARRAY_TEX_UV] = uvs
 	arr[Mesh.ARRAY_COLOR] = cols
+	arr[Mesh.ARRAY_TANGENT] = tangents
 	arr[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	var mi := MeshInstance3D.new()
 	mi.name = "Terrain"
 	mi.mesh = mesh
-	mi.material_override = mat("ground")
-	mat("ground").albedo_texture = load(DATA + "ground.png")
+	mi.material_override = terrain_material()
 	add_child(mi)
 
 	var body := StaticBody3D.new()
@@ -243,7 +260,7 @@ func _build_far_terrain() -> void:
 	# skirt along the chunk edge hides cracks between the two grids
 	var sk := SurfaceTool.new()
 	sk.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var g := mat("ground")
+	var g := terrain_material()
 	for side in 4:
 		for k in int(size / 2.0):
 			var t0 := -half + k * 2.0
@@ -273,6 +290,21 @@ func _build_bounds() -> void:
 		var off := half + 1.0
 		body.position = [Vector3(0, 100, -off), Vector3(0, 100, off), Vector3(-off, 100, 0), Vector3(off, 100, 0)][side]
 		add_child(body)
+
+
+func terrain_material() -> ShaderMaterial:
+	if _mats.has("terrain"):
+		return _mats.terrain
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/terrain.gdshader")
+	m.set_shader_parameter("splat", load(DATA + "splat.png"))
+	m.set_shader_parameter("macro", load(DATA + "ground.png"))
+	m.set_shader_parameter("chunk_size", float(size))
+	for layer in [["grass", "grass"], ["path", "paving"], ["forest", "forest"], ["dirt", "dirt"], ["asphalt", "asphalt"]]:
+		m.set_shader_parameter(layer[0] + "_albedo", load(TEX + "pbr/" + layer[1] + "_albedo.jpg"))
+		m.set_shader_parameter(layer[0] + "_normal", load(TEX + "pbr/" + layer[1] + "_normal.png"))
+	_mats.terrain = m
+	return m
 
 
 # ---------------------------------------------------------------- roads
@@ -305,7 +337,7 @@ func _on_road(p: Vector2, margin: float) -> bool:
 	return false
 
 
-func _ribbon(st: SurfaceTool, pts: PackedVector2Array, w: float, lift: float, uv_mode: int, col: Color, uv_scale := 8.0) -> void:
+func _ribbon(st: SurfaceTool, pts: PackedVector2Array, w: float, lift: float, uv_mode: int, col: Color, uv_scale := 4.0) -> void:
 	pts = _resample(pts, 2.0)
 	if pts.size() < 2:
 		return
@@ -345,6 +377,8 @@ func _build_roads() -> void:
 	var stairs := SurfaceTool.new(); stairs.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var paint := SurfaceTool.new(); paint.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var curb := SurfaceTool.new(); curb.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var trail := SurfaceTool.new(); trail.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var ballast := SurfaceTool.new(); ballast.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var k := 0
 	for r in data.roads:
 		var pts := _line(r.p)
@@ -357,24 +391,26 @@ func _build_roads() -> void:
 			_add_handrails(pts, maxf(2.5, r.w))
 		elif r.k == "road":
 			var w := float(r.w)
-			_ribbon(asphalt, pts, w, ROAD_LIFT.get(r.c, 0.12) + jitter, 0, Color.WHITE)
+			_ribbon(asphalt, pts, w, ROAD_LIFT.get(r.c, 0.12) + jitter, 0, Color.WHITE, 4.0)
 			if r.c in ["primary", "secondary", "tertiary"]:
 				_dashes(paint, pts, ROAD_LIFT.get(r.c, 0.12) + 0.02)
 			if MAIN_ROADS.has(r.c):
 				_curbs(curb, pts, w)
 		elif r.k == "rail":
-			_ribbon(pave, pts, float(r.w), 0.05 + jitter, 0, Color(0.55, 0.45, 0.38), 4.0)
+			_ribbon(ballast, pts, float(r.w), 0.05 + jitter, 0, Color.WHITE, 4.0)
 		else:
-			var col := Color.WHITE
 			var w := maxf(1.6, float(r.w))
-			if r.c in ["path", "track"]:
-				col = Color(0.85, 0.7, 0.52)   # dirt trail through the park
-			_ribbon(pave, pts, w, 0.07 + jitter, 0, col, 4.0)
-	_add_mesh(asphalt, mat("asphalt", "asphalt"), false, "Roads")
-	_add_mesh(pave, mat("pavement", "pavement"), false, "Paths")
-	_add_mesh(stairs, mat("stairs", "stairs"), false, "Stairs")
-	_add_mesh(paint, mat("paint", "", {"albedo_color": Color(0.92, 0.9, 0.8)}), false, "Markings")
-	_add_mesh(curb, mat("curb", "concrete"), false, "Curbs")
+			if r.c in ["path", "track"]:   # dirt trail through the park
+				_ribbon(trail, pts, w, 0.05 + jitter, 0, Color.WHITE, 4.0)
+			else:
+				_ribbon(pave, pts, w, 0.07 + jitter, 0, Color.WHITE, 4.0)
+	_add_mesh(asphalt, pbr("asphalt", "asphalt"), false, "Roads")
+	_add_mesh(pave, pbr("paving", "paving"), false, "Paths")
+	_add_mesh(trail, pbr("trail", "dirt"), false, "Trails")
+	_add_mesh(ballast, pbr("ballast", "ballast"), false, "Railway")
+	_add_mesh(stairs, mat("stairs", "stairs", {"albedo_color": Color(0.85, 0.84, 0.82)}), false, "Stairs")
+	_add_mesh(paint, mat("paint", "", {"albedo_color": Color(0.85, 0.84, 0.78), "roughness": 0.7}), false, "Markings")
+	_add_mesh(curb, mat("curb", "concrete", {"albedo_color": Color(0.8, 0.8, 0.78)}), false, "Curbs")
 
 
 func _dashes(st: SurfaceTool, pts: PackedVector2Array, lift: float) -> void:
@@ -422,11 +458,13 @@ func _flush_curb(st: SurfaceTool, run: PackedVector3Array) -> void:
 
 # ---------------------------------------------------------------- buildings
 
+## facade texture set, tile width and height in metres (the tile is 4 bays wide)
 const FACADE := {
-	"panel": ["facade_panel", 12.0, 11.2], "panel_b": ["facade_panel_b", 12.0, 11.2],
-	"khrush": ["facade_khrush", 12.0, 11.2], "public": ["facade_public", 14.0, 7.0],
-	"garage": ["facade_garage", 12.0, 3.0], "industrial": ["facade_industrial", 8.0, 8.0],
+	"panel": ["panel", 12.8, 8.4], "panel_b": ["panel", 12.8, 8.4],
+	"khrush": ["khrush", 12.0, 8.4], "public": ["public", 12.0, 7.2],
+	"garage": ["garage", 9.6, 3.0], "industrial": ["industrial", 12.0, 6.0],
 }
+const PARAPET := 0.6
 
 
 func _build_buildings(list: Array, collide: bool, prefix: String) -> void:
@@ -441,7 +479,9 @@ func _build_buildings(list: Array, collide: bool, prefix: String) -> void:
 		var kname: String = b.k
 		if kname == "panel" and rng.randf() < 0.4:
 			kname = "panel_b"
-		var tint := Color.from_hsv(rng.randf_range(0.05, 0.14), rng.randf_range(0.0, 0.12), rng.randf_range(0.86, 1.04))
+		var tint := Color.from_hsv(rng.randf_range(0.05, 0.14), rng.randf_range(0.0, 0.08), rng.randf_range(1.0, 1.12))
+		if kname == "panel_b":
+			tint = tint * Color(1.0, 0.95, 0.85)
 		var base := float(b.base)
 		var outer := _line(b.outer)
 		var lo := INF
@@ -459,17 +499,41 @@ func _build_buildings(list: Array, collide: bool, prefix: String) -> void:
 			if ri > 0:
 				cw = not cw
 			_walls(walls[kname], ring, bottom, top, base, FACADE[kname], cw, tint)
+			if collide:
+				_parapet(roof, ring, top, cw)
 		var all := PackedVector2Array()
 		for ring in rings:
 			all.append_array(ring)
 		var tri: Array = b.tri
+		var roof_y := top - (PARAPET * 0.8 if collide else 0.0)
 		for t in range(0, tri.size(), 3):
 			var pa := all[int(tri[t])]; var pb := all[int(tri[t + 1])]; var pc := all[int(tri[t + 2])]
-			_tri(roof, Vector3(pa.x, top, pa.y), Vector3(pb.x, top, pb.y), Vector3(pc.x, top, pc.y),
-				pa / 6.0, pb / 6.0, pc / 6.0, Vector3.UP, tint)
+			_tri(roof, Vector3(pa.x, roof_y, pa.y), Vector3(pb.x, roof_y, pb.y), Vector3(pc.x, roof_y, pc.y),
+				pa / 4.0, pb / 4.0, pc / 4.0, Vector3.UP, tint)
 	for kname in walls:
-		_add_mesh(walls[kname], mat("wall_" + kname, FACADE[kname][0]), collide, prefix + "Walls_" + kname)
-	_add_mesh(roof, mat("roof", "roof"), collide, prefix + "Roofs")
+		_add_mesh(walls[kname], pbr("wall_" + FACADE[kname][0], FACADE[kname][0]), collide, prefix + "Walls_" + kname)
+	_add_mesh(roof, pbr("roof", "roof"), collide, prefix + "Roofs")
+
+
+## Inner face and cap of the low wall around a flat roof.
+func _parapet(st: SurfaceTool, ring: PackedVector2Array, top: float, cw: bool) -> void:
+	var low := top - PARAPET * 0.8
+	var cap := Color(0.75, 0.74, 0.72)
+	for i in ring.size():
+		var a := ring[i]
+		var b := ring[(i + 1) % ring.size()]
+		var len := a.distance_to(b)
+		if len < 0.05:
+			continue
+		var d := (b - a) / len
+		var out2 := Vector2(d.y, -d.x) if cw else Vector2(-d.y, d.x)
+		var inn := -out2 * 0.25
+		var A := Vector3(a.x + inn.x, low, a.y + inn.y); var B := Vector3(b.x + inn.x, low, b.y + inn.y)
+		var At := Vector3(A.x, top, A.z); var Bt := Vector3(B.x, top, B.z)
+		var n := Vector3(-out2.x, 0, -out2.y)
+		_quad(st, A, B, Bt, At, Vector2(0, 0.2), Vector2(len / 4.0, 0.2), Vector2(len / 4.0, 0), Vector2(0, 0), n, cap)
+		var Ot := Vector3(a.x, top, a.y); var Pt := Vector3(b.x, top, b.y)
+		_quad(st, Ot, Pt, Bt, At, Vector2(0, 0), Vector2(len / 4.0, 0), Vector2(len / 4.0, 0.06), Vector2(0, 0.06), Vector3.UP, cap)
 
 
 func _signed_area(ring: PackedVector2Array) -> float:
@@ -498,62 +562,159 @@ func _walls(st: SurfaceTool, ring: PackedVector2Array, bottom: float, top: float
 		var u0 := u
 		var u1 := u + maxf(1.0, roundf(len / (tw / 4.0))) * 0.25
 		u = u1
-		var v_bottom := (top - bottom) / th
-		var dark := tint * Color(0.62, 0.62, 0.66)
-		var mid := clampf(base + 2.6, bottom + 0.1, top - 0.1)
+		# v counts floors up from the base, so window rows sit on real floor heights
+		var v := func(y: float) -> float: return 1.0 - (y - base) / th
+		var dark := tint * Color(0.8, 0.8, 0.82)
+		var mid := clampf(base + 1.2, bottom + 0.1, top - 0.1)
 		var A := Vector3(a.x, bottom, a.y); var B := Vector3(b.x, bottom, b.y)
 		var Am := Vector3(a.x, mid, a.y); var Bm := Vector3(b.x, mid, b.y)
 		var At := Vector3(a.x, top, a.y); var Bt := Vector3(b.x, top, b.y)
-		var vm := (top - mid) / th
-		# lower band darker: cheap baked ambient occlusion near the ground
-		_tri(st, A, B, Bm, Vector2(u0, v_bottom), Vector2(u1, v_bottom), Vector2(u1, vm), n, dark)
-		_tri(st, A, Bm, Am, Vector2(u0, v_bottom), Vector2(u1, vm), Vector2(u0, vm), n, dark)
-		_tri(st, Am, Bm, Bt, Vector2(u0, vm), Vector2(u1, vm), Vector2(u1, 0), n, tint)
-		_tri(st, Am, Bt, At, Vector2(u0, vm), Vector2(u1, 0), Vector2(u0, 0), n, tint)
+		var vb: float = v.call(bottom)
+		var vm: float = v.call(mid)
+		var vt: float = v.call(top)
+		# lower band slightly darker: grime and bounce shadow near the ground
+		_tri(st, A, B, Bm, Vector2(u0, vb), Vector2(u1, vb), Vector2(u1, vm), n, dark)
+		_tri(st, A, Bm, Am, Vector2(u0, vb), Vector2(u1, vm), Vector2(u0, vm), n, dark)
+		_tri(st, Am, Bm, Bt, Vector2(u0, vm), Vector2(u1, vm), Vector2(u1, vt), n, tint)
+		_tri(st, Am, Bt, At, Vector2(u0, vm), Vector2(u1, vt), Vector2(u0, vt), n, tint)
 
 
 # ---------------------------------------------------------------- trees
 
-func _tree_card_mesh(tex: String) -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for a in [0.0, PI / 2.0]:
-		var dx := Vector3(cos(a), 0, sin(a)) * 0.33
-		var n := Vector3(-sin(a), 0, cos(a))
-		var p0 := -dx; var p1 := dx
-		_quad(st, p0, p1, p1 + Vector3.UP, p0 + Vector3.UP, Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0), n)
-		_quad(st, p1, p0, p0 + Vector3.UP, p1 + Vector3.UP, Vector2(1, 1), Vector2(0, 1), Vector2(0, 0), Vector2(1, 0), -n)
-	var m := st.commit()
-	m.surface_set_material(0, mat("tree_" + tex, tex, {
-		"transparency": BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR, "alpha_scissor_threshold": 0.5,
-		"cull_mode": BaseMaterial3D.CULL_DISABLED}))
+## Tree species: bark, leaf card texture, height range, crown shape.
+const TREES := {
+	"birch": {"bark": "bark_birch", "leaves": "leaves_birch", "h": [9.0, 15.0], "r": 0.16, "chance": 0.5},
+	"broad": {"bark": "bark_pine", "leaves": "leaves_broad", "h": [8.0, 13.0], "r": 0.22, "chance": 0.2},
+	"pine": {"bark": "bark_pine", "leaves": "needles", "h": [12.0, 20.0], "r": 0.25, "chance": 0.3},
+}
+const TREE_VARIANTS := 3
+
+
+func _foliage_mat(tex: String) -> StandardMaterial3D:
+	return mat("leaves_" + tex, "", {
+		"albedo_texture": load(TEX + "foliage/" + tex + ".png"),
+		"transparency": BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR, "alpha_scissor_threshold": 0.45,
+		"alpha_antialiasing_mode": BaseMaterial3D.ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE,
+		"cull_mode": BaseMaterial3D.CULL_DISABLED, "roughness": 0.85,
+		"backlight_enabled": true, "backlight": Color(0.35, 0.42, 0.2)})
+
+
+## Tapered, slightly bent cylinder from a to b.
+func _limb(st: SurfaceTool, a: Vector3, b: Vector3, r0: float, r1: float, sides: int, v_scale: float) -> void:
+	var f := (b - a).normalized()
+	var side := f.cross(Vector3.UP if absf(f.y) < 0.95 else Vector3.RIGHT).normalized()
+	var up := side.cross(f).normalized()
+	var len := a.distance_to(b)
+	for k in sides:
+		var a0 := TAU * k / sides
+		var a1 := TAU * (k + 1) / sides
+		var d0 := side * cos(a0) + up * sin(a0)
+		var d1 := side * cos(a1) + up * sin(a1)
+		var u0 := float(k) / sides
+		var u1 := float(k + 1) / sides
+		_quad(st, a + d0 * r0, a + d1 * r0, b + d1 * r1, b + d0 * r1,
+			Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, -len / v_scale), Vector2(u0, -len / v_scale), (d0 + d1).normalized())
+
+
+## A leaf card: bottom centre at p, growing along dir, normals bent away from the crown centre.
+func _leaf_card(st: SurfaceTool, p: Vector3, dir: Vector3, size: float, crown: Vector3, spin: float) -> void:
+	var side := dir.cross(Vector3.UP if absf(dir.y) < 0.95 else Vector3.RIGHT).normalized().rotated(dir, spin) * size * 0.5
+	var tip := dir * size
+	var corners := [p - side, p + side, p + side + tip, p - side + tip]
+	var uvs := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+	for t in [[0, 1, 2], [0, 2, 3]]:
+		for k in t:
+			var c: Vector3 = corners[k]
+			st.set_normal((c - crown).normalized())
+			st.set_uv(uvs[k])
+			st.set_color(Color.WHITE)
+			st.add_vertex(c)
+
+
+func _make_tree(kind: String, rng: RandomNumberGenerator) -> ArrayMesh:
+	var spec: Dictionary = TREES[kind]
+	var bark := SurfaceTool.new(); bark.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var leaves := SurfaceTool.new(); leaves.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var h := 1.0                       # built at unit height, scaled per instance
+	var r: float = spec.r / 12.0
+	var lean := Vector3(rng.randf_range(-0.04, 0.04), 0, rng.randf_range(-0.04, 0.04))
+	var trunk := [Vector3.ZERO, Vector3(0, 0.35, 0) + lean * 0.5, Vector3(0, 0.7, 0) + lean, Vector3(0, h, 0) + lean * 1.4]
+	for i in 3:
+		_limb(bark, trunk[i] - Vector3(0, 0.02 if i == 0 else 0.0, 0), trunk[i + 1], r * (1.0 - i * 0.3), r * (0.7 - i * 0.3) + 0.002, 7, 0.12)
+	if kind == "pine":
+		var crown := Vector3(0, 0.72, 0) + lean
+		var whorls := 9
+		for w in whorls:
+			var y := 0.4 + 0.6 * w / float(whorls)
+			var base := Vector3(0, y, 0) + lean * y
+			var len := 0.26 * (1.0 - (y - 0.4) / 0.62) + 0.04
+			for b in 5:
+				var ang := TAU * b / 5.0 + w * 0.9 + rng.randf() * 0.5
+				var dir := Vector3(cos(ang), rng.randf_range(-0.25, 0.05), sin(ang)).normalized()
+				_limb(bark, base, base + dir * len, 0.004, 0.0015, 4, 0.05)
+				# needles: a flat card along the branch plus a tilted one
+				_leaf_card(leaves, base, dir, len * 1.05, crown, 0.0)
+				_leaf_card(leaves, base, dir, len * 1.05, crown, PI * 0.5)
+		_leaf_card(leaves, Vector3(0, 0.93, 0) + lean * 1.3, Vector3.UP, 0.1, crown, 0.0)
+	else:
+		var crown := Vector3(0, 0.68, 0) + lean
+		var branches := 14 if kind == "birch" else 18
+		for b in branches:
+			var y := rng.randf_range(0.35, 0.92)
+			var base := Vector3(0, y, 0) + lean * y
+			var ang := rng.randf() * TAU
+			var up_t := rng.randf_range(0.5, 1.1) if kind == "birch" else rng.randf_range(0.3, 0.8)
+			var dir := Vector3(cos(ang), up_t, sin(ang)).normalized()
+			var len := rng.randf_range(0.14, 0.26) * (1.15 - absf(y - 0.62))
+			var end := base + dir * len
+			_limb(bark, base, end, 0.006, 0.002, 4, 0.05)
+			for c in 4:
+				var t := rng.randf_range(0.35, 1.0)
+				var p := base.lerp(end, t)
+				var cd := (dir + Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.6, 0.3), rng.randf_range(-0.6, 0.6))).normalized()
+				_leaf_card(leaves, p - cd * 0.03, cd, rng.randf_range(0.14, 0.2), crown, rng.randf() * PI)
+	var m := bark.commit()
+	m.surface_set_material(0, mat("bark_" + spec.bark, "", {"albedo_texture": load(TEX + "foliage/" + spec.bark + ".jpg"), "roughness": 0.95}))
+	leaves.commit(m)
+	m.surface_set_material(1, _foliage_mat(spec.leaves))
 	return m
 
 
 func _build_trees() -> void:
-	var kinds := ["tree_birch", "tree_pine"]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 9
-	var buckets := [[], []]
+	var kinds := TREES.keys()
+	var buckets := {}
 	for p in data.props.tree:
-		buckets[0 if rng.randf() < 0.7 else 1].append(p)
-	for ki in 2:
+		var roll := rng.randf()
+		var kind: String = kinds[-1]
+		for k in kinds:
+			roll -= TREES[k].chance
+			if roll <= 0.0:
+				kind = k
+				break
+		var key := "%s_%d" % [kind, rng.randi() % TREE_VARIANTS]
+		if not buckets.has(key):
+			buckets[key] = []
+		buckets[key].append(p)
+	for key in buckets:
+		var kind: String = key.rsplit("_", true, 1)[0]
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.use_colors = true
-		mm.mesh = _tree_card_mesh(kinds[ki])
-		mm.instance_count = buckets[ki].size()
-		for i in buckets[ki].size():
-			var p: Array = buckets[ki][i]
-			var h := rng.randf_range(7.0, 13.0)
-			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(h, h, h))
-			mm.set_instance_transform(i, Transform3D(basis, Vector3(p[0], height_at(p[0], p[1]) - 0.2, p[1])))
-			var s := rng.randf_range(0.8, 1.1)
-			mm.set_instance_color(i, Color(s, s * rng.randf_range(0.95, 1.05), s * 0.9))
+		mm.mesh = _make_tree(kind, rng)
+		mm.instance_count = buckets[key].size()
+		for i in buckets[key].size():
+			var p: Array = buckets[key][i]
+			var h := rng.randf_range(TREES[kind].h[0], TREES[kind].h[1])
+			var w := h * rng.randf_range(0.85, 1.15)
+			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
+			mm.set_instance_transform(i, Transform3D(basis, Vector3(p[0], height_at(p[0], p[1]) - 0.1, p[1])))
+			var s := rng.randf_range(0.85, 1.1)
+			mm.set_instance_color(i, Color(s * rng.randf_range(0.95, 1.08), s, s * rng.randf_range(0.85, 1.0)))
 		var mmi := MultiMeshInstance3D.new()
-		mmi.name = "Trees_" + kinds[ki]
+		mmi.name = "Trees_" + key
 		mmi.multimesh = mm
-		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
 
 

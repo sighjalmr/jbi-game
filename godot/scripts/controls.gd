@@ -13,7 +13,7 @@ const KEYS := {
 	"grab": [KEY_I],
 	"respawn": [KEY_R],
 	"next_spot": [KEY_T],
-	"toggle_retro": [KEY_F2],
+	"toggle_quality": [KEY_F2],
 }
 const PAD_BUTTONS := {
 	"ollie": [JOY_BUTTON_A],

@@ -52,7 +52,6 @@ var _buffer := {}
 var visual: Node3D
 var board: Node3D
 var body: Node3D
-var shadow: MeshInstance3D
 
 const FLIP_DURATION := 0.42
 const TRICKS := {
@@ -380,11 +379,28 @@ func _box(parent: Node3D, size: Vector3, pos: Vector3, col: Color) -> MeshInstan
 	m.size = size
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = col
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
-	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	mat.roughness = 0.8
 	m.material = mat
 	mi.mesh = m
 	mi.position = pos
+	parent.add_child(mi)
+	return mi
+
+
+func _capsule(parent: Node3D, radius: float, height: float, pos: Vector3, col: Color, rot := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var m := CapsuleMesh.new()
+	m.radius = radius
+	m.height = height
+	m.radial_segments = 12
+	m.rings = 4
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.roughness = 0.85
+	m.material = mat
+	mi.mesh = m
+	mi.position = pos
+	mi.rotation = rot
 	parent.add_child(mi)
 	return mi
 
@@ -413,29 +429,25 @@ func _build_model() -> void:
 	var hoodie := Color(0.2, 0.42, 0.3)
 	var skin := Color(0.92, 0.74, 0.6)
 	for z: float in [-0.17, 0.17]:
-		_box(body, Vector3(0.2, 0.8, 0.19), Vector3(0, 0.4, z), jeans)
-		_box(body, Vector3(0.26, 0.09, 0.14), Vector3(0.04, 0.04, z), Color(0.9, 0.9, 0.9))   # sneakers
-	_box(body, Vector3(0.34, 0.62, 0.5), Vector3(0, 1.1, 0), hoodie)
-	for z: float in [-0.3, 0.3]:
-		_box(body, Vector3(0.13, 0.55, 0.13), Vector3(0, 1.05, z * 1.05), hoodie)
-		_box(body, Vector3(0.1, 0.1, 0.1), Vector3(0, 0.74, z * 1.05), skin)
-	_box(body, Vector3(0.24, 0.26, 0.24), Vector3(0, 1.55, 0), skin)
-	_box(body, Vector3(0.27, 0.09, 0.27), Vector3(0, 1.7, 0), Color(0.1, 0.1, 0.12))       # beanie
+		_capsule(body, 0.085, 0.84, Vector3(0, 0.46, z), jeans, Vector3(z * 0.25, 0, 0))
+		_box(body, Vector3(0.28, 0.08, 0.12), Vector3(0.04, 0.04, z * 1.08), Color(0.92, 0.92, 0.9))   # sneakers
+	_capsule(body, 0.2, 0.66, Vector3(0, 1.12, 0), hoodie).scale = Vector3(0.8, 1.0, 1.15)
+	for z: float in [-0.27, 0.27]:
+		_capsule(body, 0.065, 0.6, Vector3(0, 1.07, z), hoodie, Vector3(-signf(z) * 0.25, 0, 0))
+		_capsule(body, 0.05, 0.12, Vector3(0, 0.76, z * 1.12), skin)
+	_capsule(body, 0.05, 0.14, Vector3(0, 1.47, 0), skin)
+	var head := MeshInstance3D.new()
+	var hm := SphereMesh.new()
+	hm.radius = 0.12
+	hm.height = 0.27
+	var hmat := StandardMaterial3D.new()
+	hmat.albedo_color = skin
+	hm.material = hmat
+	head.mesh = hm
+	head.position = Vector3(0.01, 1.6, 0)
+	body.add_child(head)
+	_capsule(body, 0.125, 0.26, Vector3(-0.01, 1.68, 0), Color(0.12, 0.12, 0.14)).scale = Vector3(1, 0.55, 1)   # beanie
 
-	shadow = MeshInstance3D.new()
-	var q := QuadMesh.new()
-	q.size = Vector2(1.1, 1.1)
-	q.orientation = PlaneMesh.FACE_Y
-	var sm := StandardMaterial3D.new()
-	sm.albedo_texture = load("res://textures/blob_shadow.png")
-	sm.albedo_color = Color(0, 0, 0, 1)
-	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	q.material = sm
-	shadow.mesh = q
-	shadow.top_level = true
-	shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(shadow)
 
 
 func _reset_pose() -> void:
@@ -478,14 +490,3 @@ func _update_visual(dt: float) -> void:
 			body.scale = Vector3.ONE
 			if Input.is_action_pressed("push") and speed < push_max:
 				body.basis = Basis(Vector3(0, 0, 1), sin(Time.get_ticks_msec() * 0.012) * 0.12)
-
-	# blob shadow on whatever is below
-	var space := get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 0.5, global_position + Vector3.DOWN * 30.0)
-	q.exclude = [get_rid()]
-	var hit := space.intersect_ray(q)
-	if hit:
-		shadow.visible = true
-		shadow.global_position = hit.position + hit.normal * 0.03
-	else:
-		shadow.visible = false

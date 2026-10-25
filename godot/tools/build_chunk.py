@@ -90,6 +90,8 @@ for f in feats('buildings'):
     ends = np.cumsum([len(outer)] + [len(h) for h in holes]).astype(np.uint32)
     tri = earcut.triangulate_float64(verts, ends).tolist()
     h = float(p['height_m'])
+    if kind_of(p, h) in ('panel', 'khrush'):
+        h = max(2, round(h / 2.8)) * 2.8 + 0.6     # whole floors plus a parapet
     (buildings if near else far_buildings).append({
         'outer': [g(x, y) for x, y in outer], 'holes': [[g(x, y) for x, y in r] for r in holes],
         'tri': tri, 'base': round(p['base_z_m'] - z0, 2), 'h': round(h, 1),
@@ -206,18 +208,21 @@ def up(m):
     return np.array(Image.fromarray(m.astype(np.uint8) * 255).resize((GROUND_PX, GROUND_PX), Image.BILINEAR)
                     .filter(ImageFilter.GaussianBlur(1.2))).astype(np.float32)[..., None] / 255
 
-PAL = {'base': (104, 128, 60), 'grass': (96, 134, 52), 'forest': (62, 86, 40), 'dirt_industrial': (128, 112, 88),
-       'paths': (150, 140, 118), 'asphalt': (88, 88, 92), 'water': (52, 86, 104)}
-img = np.ones((GROUND_PX, GROUND_PX, 3), np.float32) * np.array(PAL['base'], np.float32)
-for k in ('grass', 'forest', 'dirt_industrial', 'paths', 'asphalt', 'water'):
-    w = up(M[k])
-    img = img * (1 - w) + np.array(PAL[k], np.float32) * w
-# hand-painted look: big soft blotches + fine grain
-n = noise(24, 1) * 38 + noise(96, 2) * 22 + noise(512, 3) * 14
-img += n[..., None] * np.array([0.8, 1.0, 0.6])
+# splat for the terrain shader: R = paths, G = forest floor, B = dirt / industrial, A = asphalt; grass elsewhere
+splat = np.concatenate([up(M['paths']), up(M['forest']), np.maximum(up(M['dirt_industrial']), up(M['water'])), up(M['asphalt'])], axis=2)
+Image.fromarray((splat * 255).astype(np.uint8), 'RGBA').save(f'{OUT}/splat.png')
+# where grass tufts grow (1 m/px, row 0 = north): grass and forest edges, not on paths, roads or under buildings
+grass = (M['grass'] | M['forest']) & ~M['paths'] & ~M['asphalt'] & ~M['water'] & ~built
+dens = np.where(M['grass'], 255, 110) * grass
+Image.fromarray(dens.astype(np.uint8)).filter(ImageFilter.MinFilter(3)).save(f'{OUT}/grass_density.png')
+np.array(Image.open(f'{OUT}/grass_density.png'), np.uint8).tofile(f'{OUT}/grass.bin')
+os.remove(f'{OUT}/grass_density.png')
+# macro tint: soft blotches so the tiling textures don't repeat visibly, darker around buildings
+macro = 1.0 + noise(12, 1) * 0.35 + noise(48, 2) * 0.2
 rim = np.array(fp.resize((GROUND_PX, GROUND_PX)).filter(ImageFilter.GaussianBlur(5))).astype(np.float32) / 255
-img *= (1 - 0.35 * rim)[..., None]
-Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(f'{OUT}/ground.png')
+macro *= 1 - 0.3 * rim
+tint = np.stack([macro * 0.9, macro, macro * 0.86], axis=2) * 200
+Image.fromarray(np.clip(tint, 0, 255).astype(np.uint8)).resize((512, 512), Image.BILINEAR).save(f'{OUT}/ground.png')
 
 # spawn: top of the stairs on Vysotskogo, facing down the steps
 spawn = g(-233.0, 1334.0)

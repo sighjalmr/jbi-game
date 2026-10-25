@@ -1,5 +1,5 @@
 extends Node3D
-## Level glue: respawn, spot switching, retro resolution toggle and the screenshot tour.
+## Level glue: respawn, spot switching, quality toggle and the screenshot tour.
 
 @onready var world: WorldBuilder = $World
 @onready var skater: Skater = $Skater
@@ -25,11 +25,13 @@ func _unhandled_input(e: InputEvent) -> void:
 		skater.respawn(spot)
 		cam.snap()
 		hud._show(world.spawn_points[spot].name)
-	elif e.is_action_pressed("toggle_retro"):
-		var root := get_tree().root
-		var low := root.content_scale_mode == Window.CONTENT_SCALE_MODE_VIEWPORT
-		root.content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED if low else Window.CONTENT_SCALE_MODE_VIEWPORT
-		hud._show("Чёткая картинка" if low else "Ретро 480p")
+	elif e.is_action_pressed("toggle_quality"):
+		# render 3D at 60% resolution on slower PCs
+		var vp := get_viewport()
+		var fast := vp.scaling_3d_scale < 1.0
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2 if not fast else Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = 1.0 if fast else 0.6
+		hud._show("Полное разрешение" if fast else "Быстрый режим")
 
 
 # ---------------------------------------------------------------- screenshots (godot -- --shots=DIR)

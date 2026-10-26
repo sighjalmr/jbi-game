@@ -43,6 +43,11 @@ const BEANIE_EDGE := 0.17
 @export var iris := Color(0.27, 0.33, 0.36)
 
 var skeleton: Skeleton3D
+var bones: Array = BONES.duplicate(true)   # rest positions, may be refitted to another body
+var leg: Array = LEG.duplicate()
+var arm: Array = ARM.duplicate()
+var ankle_h := 0.08
+var show_mesh := true
 var _idx := {}
 var _parent: Array[int] = []
 var _offset: Array[Vector3] = []     # rest offset from the parent joint
@@ -61,14 +66,14 @@ func _ready() -> void:
 	skeleton = Skeleton3D.new()
 	skeleton.name = "Skeleton"
 	add_child(skeleton)
-	for b in BONES:
+	for b in bones:
 		var i := skeleton.add_bone(b[0])
 		_idx[b[0]] = i
 		var p: int = _idx[b[1]] if b[1] != "" else -1
 		_parent.append(p)
 		if p >= 0:
 			skeleton.set_bone_parent(i, p)
-		var off: Vector3 = b[2] - (BONES[p][2] if p >= 0 else Vector3.ZERO)
+		var off: Vector3 = b[2] - (bones[p][2] if p >= 0 else Vector3.ZERO)
 		_offset.append(off)
 		skeleton.set_bone_rest(i, Transform3D(Basis(), off))
 		_cur.append(Quaternion.IDENTITY)
@@ -80,6 +85,8 @@ func _ready() -> void:
 	skeleton.set_bone_rest(_lids, Transform3D(Basis(), Vector3(0, _eye.y, _eye.z) - _pos("head")))
 	_idx["lids"] = _lids
 	skeleton.reset_bone_poses()
+	if not show_mesh:
+		return
 	var mi := MeshInstance3D.new()
 	mi.name = "Body"
 	mi.mesh = _build_mesh()
@@ -88,10 +95,39 @@ func _ready() -> void:
 	mi.skin = skeleton.create_skin_from_rest_transforms()
 
 
+## Moves the joints to match another body (call before adding to the tree). `at` maps
+## our bone names to model-space joint positions; arms and legs are laid straight down.
+func fit(at: Dictionary) -> void:
+	for b in bones:
+		if at.has(b[0]):
+			b[2] = at[b[0]]
+	for s: String in ["L", "R"]:
+		var ua: Vector3 = at["upperarm." + s]
+		var fa: Vector3 = at["forearm." + s]
+		var ha: Vector3 = at["hand." + s]
+		var th: Vector3 = at["thigh." + s]
+		var sh: Vector3 = at["shin." + s]
+		var ft: Vector3 = at["foot." + s]
+		arm = [ua.distance_to(fa), fa.distance_to(ha)]
+		leg = [th.distance_to(sh), sh.distance_to(ft)]
+		bones[_bone_row("forearm." + s)][2] = ua + Vector3.DOWN * arm[0]
+		bones[_bone_row("hand." + s)][2] = ua + Vector3.DOWN * (arm[0] + arm[1])
+		bones[_bone_row("shin." + s)][2] = th + Vector3.DOWN * leg[0]
+		bones[_bone_row("foot." + s)][2] = th + Vector3.DOWN * (leg[0] + leg[1])
+		ankle_h = th.y - leg[0] - leg[1]
+
+
+func _bone_row(name: String) -> int:
+	for i in bones.size():
+		if bones[i][0] == name:
+			return i
+	return -1
+
+
 # ---------------------------------------------------------------- mesh
 
 func _pos(name: String) -> Vector3:
-	return BONES[_idx[name]][2]
+	return bones[_idx[name]][2]
 
 
 ## Elliptic tube between two joints, skinned to `bone`, blending into `parent` near the start.
@@ -402,7 +438,7 @@ func pose_foot(dt: float, speed: float, phase: float, airborne: bool) -> void:
 func pose_skate(dt: float, crouch: float, pushing: bool, push_phase: float, steer: float, grab: bool, grind_balance: float, airborne: bool, board_y: float) -> void:
 	_begin()
 	crouch = clampf(crouch, 0.0, 1.0)
-	var feet_y := board_y + 0.07
+	var feet_y := board_y + ankle_h - 0.01
 	var leg_drop := 0.08 + 0.32 * crouch
 	_hips = Vector3(0, -leg_drop + board_y, -0.02 - 0.06 * crouch)
 	_rot("hips", Vector3(0, 0.25, steer * 0.12))
@@ -418,14 +454,14 @@ func pose_skate(dt: float, crouch: float, pushing: bool, push_phase: float, stee
 	if pushing:
 		# back foot steps off and kicks along the ground beside the board
 		var k := sin(push_phase)
-		back = Vector3(0.25 + k * 0.38, 0.07 + maxf(0.0, -cos(push_phase)) * 0.1, 0.24)
+		back = Vector3(0.25 + k * 0.38, ankle_h - 0.01 + maxf(0.0, -cos(push_phase)) * 0.1, 0.24)
 		_hips.y -= 0.06
 		_rot("spine", Vector3(0.35, 0.1, 0))
 	if grab:
 		_rot("upperarm.R", Vector3(-0.9, 0, -0.3)); _rot("forearm.R", Vector3(-0.2, 0, 0))
 		_rot("spine", Vector3(0.6, 0.1, 0))
-	_ik("thigh.R", "shin.R", "foot.R", front, LEG, 1.0)
-	_ik("thigh.L", "shin.L", "foot.L", back, LEG, 1.0)
+	_ik("thigh.R", "shin.R", "foot.R", front, leg, 1.0)
+	_ik("thigh.L", "shin.L", "foot.L", back, leg, 1.0)
 	_apply(dt, 30.0 if pushing or airborne else 16.0)
 
 
@@ -438,6 +474,8 @@ func pose_bmx(dt: float, bike: BmxBike, crouch: float, steer: float, trick: Stri
 	_rot("head", Vector3(-0.35, 0, 0))
 	var grips := bike.grips()
 	var pedals := bike.pedals()
+	for i in 2:
+		pedals[i] += Vector3(0, ankle_h - 0.08, 0)
 	match trick:
 		"Superman":
 			_hips = Vector3(0, 0.1, -0.35)
@@ -445,32 +483,32 @@ func pose_bmx(dt: float, bike: BmxBike, crouch: float, steer: float, trick: Stri
 			_rot("head", Vector3(-0.9, 0, 0))
 			_rot("thigh.L", Vector3(0.9, 0, 0.1)); _rot("thigh.R", Vector3(0.8, 0, -0.1))
 			_rot("shin.L", Vector3(0.2, 0, 0)); _rot("shin.R", Vector3(0.3, 0, 0))
-			_ik("upperarm.L", "forearm.L", "hand.L", grips[0], ARM, -1.0, false)
-			_ik("upperarm.R", "forearm.R", "hand.R", grips[1], ARM, -1.0, false)
+			_ik("upperarm.L", "forearm.L", "hand.L", grips[0], arm, -1.0, false)
+			_ik("upperarm.R", "forearm.R", "hand.R", grips[1], arm, -1.0, false)
 			_apply(dt, 14.0)
 			return
 		"Barspin":
 			# let go while the bars spin, hands up and back
 			var free := sin(clampf(trick_k, 0.0, 1.0) * PI)
-			_ik("thigh.L", "shin.L", "foot.L", pedals[0], LEG, 1.0)
-			_ik("thigh.R", "shin.R", "foot.R", pedals[1], LEG, 1.0)
-			_ik("upperarm.L", "forearm.L", "hand.L", grips[0] + Vector3(0.15, 0.25, -0.2) * free, ARM, -1.0, false)
-			_ik("upperarm.R", "forearm.R", "hand.R", grips[1] + Vector3(-0.15, 0.25, -0.2) * free, ARM, -1.0, false)
+			_ik("thigh.L", "shin.L", "foot.L", pedals[0], leg, 1.0)
+			_ik("thigh.R", "shin.R", "foot.R", pedals[1], leg, 1.0)
+			_ik("upperarm.L", "forearm.L", "hand.L", grips[0] + Vector3(0.15, 0.25, -0.2) * free, arm, -1.0, false)
+			_ik("upperarm.R", "forearm.R", "hand.R", grips[1] + Vector3(-0.15, 0.25, -0.2) * free, arm, -1.0, false)
 			_apply(dt, 30.0)
 			return
 		"Tailwhip":
 			# feet off while the frame whips round
-			_ik("upperarm.L", "forearm.L", "hand.L", grips[0], ARM, -1.0, false)
-			_ik("upperarm.R", "forearm.R", "hand.R", grips[1], ARM, -1.0, false)
+			_ik("upperarm.L", "forearm.L", "hand.L", grips[0], arm, -1.0, false)
+			_ik("upperarm.R", "forearm.R", "hand.R", grips[1], arm, -1.0, false)
 			_rot("thigh.L", Vector3(-0.4, 0, 0.35)); _rot("thigh.R", Vector3(-0.4, 0, -0.35))
 			_rot("shin.L", Vector3(1.1, 0, 0)); _rot("shin.R", Vector3(1.1, 0, 0))
 			_hips.y += 0.12
 			_apply(dt, 20.0)
 			return
-	_ik("thigh.L", "shin.L", "foot.L", pedals[0], LEG, 1.0)
-	_ik("thigh.R", "shin.R", "foot.R", pedals[1], LEG, 1.0)
-	_ik("upperarm.L", "forearm.L", "hand.L", grips[0], ARM, -1.0, false)
-	_ik("upperarm.R", "forearm.R", "hand.R", grips[1], ARM, -1.0, false)
+	_ik("thigh.L", "shin.L", "foot.L", pedals[0], leg, 1.0)
+	_ik("thigh.R", "shin.R", "foot.R", pedals[1], leg, 1.0)
+	_ik("upperarm.L", "forearm.L", "hand.L", grips[0], arm, -1.0, false)
+	_ik("upperarm.R", "forearm.R", "hand.R", grips[1], arm, -1.0, false)
 	_apply(dt, 40.0)
 
 

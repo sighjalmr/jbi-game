@@ -497,7 +497,23 @@ func _build_model() -> void:
 	visual.add_child(bike)
 	rig = RiderRig.new()
 	rig.name = "Rider"
+	# a ready-made character in res://characters replaces the procedural body
+	var body: MixamoBody = null
+	var model := MixamoBody.find_model()
+	if model != "":
+		body = MixamoBody.new()
+		body.name = "Body"
+		if body.load_model(model):
+			rig.fit(body.joints())
+			rig.show_mesh = false
+		else:
+			push_warning("Not a Mixamo rig: " + model)
+			body.free()
+			body = null
 	visual.add_child(rig)
+	if body:
+		rig.add_child(body)
+		body.bind(rig)
 
 
 func _reset_pose() -> void:

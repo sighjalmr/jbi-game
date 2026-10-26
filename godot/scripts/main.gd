@@ -56,16 +56,44 @@ func _tap(action: String) -> void:
 	Input.parse_input_event(e)
 
 
+func _ride(frames: int) -> void:
+	Input.action_press("push")
+	await _frames(frames)
+	Input.action_release("push")
+
+
+## Puts the player on the longest straight bit of road, facing along it.
+func _place_on_road(skate_mode: Skater.Mode) -> void:
+	var best_seg := []
+	var best_l := 0.0
+	for r in world.data.roads:
+		if r.k != "road":
+			continue
+		for i in r.p.size() - 1:
+			var a := Vector2(r.p[i][0], r.p[i][1])
+			var b := Vector2(r.p[i + 1][0], r.p[i + 1][1])
+			if a.distance_to(b) > best_l:
+				best_l = a.distance_to(b)
+				best_seg = [a, b]
+	skater.respawn(0)
+	skater.set_mode(skate_mode)
+	var d: Vector2 = (best_seg[1] - best_seg[0]).normalized()
+	skater.global_position = world.ground(best_seg[0].lerp(best_seg[1], 0.3), 0.2)
+	skater.yaw = atan2(d.x, d.y)
+	cam.snap()
+
+
 func _shot_tour(dir: String) -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
+	var only := OS.get_environment("SHOTS_ONLY")
+	cam.distance = 3.6
+	cam.height = 1.5
 	await _frames(20)
 	cam.snap()
 	await _frames(5)
 	await _save(dir, "01_spawn")
 
-	Input.action_press("push")
-	await _frames(150)
-	Input.action_release("push")
+	await _ride(150)
 	await _frames(30)
 	await _save(dir, "02_stairs_ride")
 
@@ -79,10 +107,9 @@ func _shot_tour(dir: String) -> void:
 			best_len = r.pts.size()
 	if best >= 0:
 		var pts: PackedVector3Array = world.rails[best].pts
-		var a := pts[2]
 		var dir3 := (pts[3] - pts[2]).normalized()
 		skater.respawn(0)
-		skater.global_position = a + Vector3.UP * 0.25
+		skater.global_position = pts[2] + Vector3.UP * 0.25
 		skater.velocity = dir3 * 6.0 + Vector3.DOWN * 0.5
 		skater.yaw = atan2(dir3.x, dir3.z)
 		cam.snap()
@@ -92,46 +119,42 @@ func _shot_tour(dir: String) -> void:
 		await _save(dir, "03_handrail_grind")
 
 	# kickflip on the main road
-	var best_seg := []
-	var best_l := 0.0
-	for r in world.data.roads:
-		if r.k != "road":
-			continue
-		for i in r.p.size() - 1:
-			var a := Vector2(r.p[i][0], r.p[i][1])
-			var b := Vector2(r.p[i + 1][0], r.p[i + 1][1])
-			if a.distance_to(b) > best_l:
-				best_l = a.distance_to(b)
-				best_seg = [a, b]
-	var a3 := world.ground(best_seg[0])
-	var b3 := world.ground(best_seg[1])
-	var d := (b3 - a3).normalized()
-	skater.respawn(0)
-	skater.global_position = world.ground(best_seg[0].lerp(best_seg[1], 0.3), 0.2)
-	skater.yaw = atan2(d.x, d.z)
-	cam.snap()
+	_place_on_road(Skater.Mode.SKATE)
 	await _frames(10)
 	skater.speed = 10.0
-	Input.action_press("push")
-	await _frames(60)
-	Input.action_release("push")
-	cam.snap()
+	await _ride(60)
 	_tap("ollie")
 	await _frames(8)
 	_tap("flip")
-	await _frames(12)
+	await _frames(10)
 	await _save(dir, "04_kickflip")
 
-	# overview from above the stairs hill, looking south over the blocks of flats
-	set_physics_process(false)
-	cam.set_physics_process(false)
-	var sp: Vector3 = world.spawn_points[0].p
-	cam.global_position = sp + Vector3(-40, 45, -60)
-	cam.look_at(sp + Vector3(30, -10, 200))
-	await _frames(3)
-	await _save(dir, "05_overview")
+	# on foot
+	_place_on_road(Skater.Mode.FOOT)
+	await _frames(10)
+	await _ride(45)
+	Input.action_press("push")
+	await _frames(1)
+	await _save(dir, "05_walk")
+	Input.action_release("push")
+
+	# BMX: pedalling, then a tailwhip
+	_place_on_road(Skater.Mode.BMX)
+	await _frames(10)
+	await _ride(70)
+	Input.action_press("push")
+	await _frames(1)
+	await _save(dir, "06_bmx")
+	Input.action_release("push")
+	_tap("ollie")
+	await _frames(10)
+	_tap("heelflip")
+	await _frames(12)
+	await _save(dir, "07_bmx_tailwhip")
 
 	# courtyard of the flats
+	set_physics_process(false)
+	cam.set_physics_process(false)
 	var flats := Vector2(INF, INF)
 	for b in world.data.buildings:
 		var c := Vector2(b.outer[0][0], b.outer[0][1])
@@ -141,5 +164,5 @@ func _shot_tour(dir: String) -> void:
 	cam.global_position = world.ground(flats * 0.8 + Vector2(-30, 0), 2.5)
 	cam.look_at(f3 + Vector3(0, 10, 0))
 	await _frames(3)
-	await _save(dir, "06_yard")
+	await _save(dir, "08_yard")
 	get_tree().quit()

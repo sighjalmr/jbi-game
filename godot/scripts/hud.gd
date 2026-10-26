@@ -41,4 +41,4 @@ func _process(dt: float) -> void:
 	balance_bar.value = skater.balance
 	_flash = maxf(0.0, _flash - dt)
 	flash_label.text = _flash_text if _flash > 0.0 else ""
-	info_label.text = "%d км/ч" % int(absf(skater.speed) * 3.6)
+	info_label.text = "%s  %d км/ч" % [skater.mode_name(), int(absf(skater.speed) * 3.6)]

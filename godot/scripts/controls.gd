@@ -14,6 +14,8 @@ const KEYS := {
 	"respawn": [KEY_R],
 	"next_spot": [KEY_T],
 	"toggle_quality": [KEY_F2],
+	"toggle_skate": [KEY_F],
+	"toggle_bmx": [KEY_B],
 }
 const PAD_BUTTONS := {
 	"ollie": [JOY_BUTTON_A],
@@ -24,6 +26,8 @@ const PAD_BUTTONS := {
 	"brake": [JOY_BUTTON_B],
 	"respawn": [JOY_BUTTON_BACK],
 	"next_spot": [JOY_BUTTON_DPAD_UP],
+	"toggle_skate": [JOY_BUTTON_DPAD_LEFT],
+	"toggle_bmx": [JOY_BUTTON_DPAD_RIGHT],
 }
 const PAD_AXES := {
 	"push": [JOY_AXIS_LEFT_Y, -1.0],

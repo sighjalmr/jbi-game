@@ -83,9 +83,33 @@ func _place_on_road(skate_mode: Skater.Mode) -> void:
 	cam.snap()
 
 
+## Close-ups of the rider standing still: face and upper body.
+func _face_shots(dir: String) -> void:
+	_place_on_road(Skater.Mode.FOOT)
+	await _frames(60)
+	cam.set_physics_process(false)
+	var rig := skater.rig
+	var head := rig.global_transform * Vector3(0, 1.66, 0)
+	var fwd := rig.global_basis.z
+	var side := rig.global_basis.x
+	cam.global_position = head + fwd * 0.5 + side * 0.18 + Vector3.UP * 0.03
+	cam.look_at(head, Vector3.UP)
+	await _frames(2)
+	await _save(dir, "09_face")
+	cam.global_position = head + fwd * 1.5 - side * 0.7 - Vector3.UP * 0.25
+	cam.look_at(head - Vector3.UP * 0.35, Vector3.UP)
+	await _frames(2)
+	await _save(dir, "10_portrait")
+	cam.set_physics_process(true)
+
+
 func _shot_tour(dir: String) -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	var only := OS.get_environment("SHOTS_ONLY")
+	if only == "face":
+		await _face_shots(dir)
+		get_tree().quit()
+		return
 	cam.distance = 3.6
 	cam.height = 1.5
 	await _frames(20)
@@ -151,6 +175,8 @@ func _shot_tour(dir: String) -> void:
 	_tap("heelflip")
 	await _frames(12)
 	await _save(dir, "07_bmx_tailwhip")
+
+	await _face_shots(dir)
 
 	# courtyard of the flats
 	set_physics_process(false)

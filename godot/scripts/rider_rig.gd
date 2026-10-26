@@ -27,12 +27,20 @@ const BONES := [
 ]
 const LEG := [0.42, 0.42]
 const ARM := [0.27, 0.25]
+const HEAD_C := Vector3(0, 1.67, 0.015)
+const HEAD_R := Vector3(0.105, 0.125, 0.115)
+const EYE_R := 0.0125
+const EYE_DIR := Vector2(0.32, 0.06)          # eye position on the head: yaw, pitch (radians)
+const BEANIE_TILT := 0.19                     # the beanie sits lower at the back
+const BEANIE_EDGE := 0.17
 
 @export var hoodie := Color(0.2, 0.42, 0.3)
 @export var jeans := Color(0.2, 0.26, 0.42)
-@export var skin := Color(0.9, 0.72, 0.58)
+@export var skin := Color(0.88, 0.66, 0.52)
 @export var shoes := Color(0.93, 0.93, 0.9)
 @export var beanie := Color(0.12, 0.12, 0.14)
+@export var hair := Color(0.17, 0.12, 0.08)
+@export var iris := Color(0.27, 0.33, 0.36)
 
 var skeleton: Skeleton3D
 var _idx := {}
@@ -40,6 +48,9 @@ var _parent: Array[int] = []
 var _offset: Array[Vector3] = []     # rest offset from the parent joint
 var _cur: Array[Quaternion] = []
 var _cur_hips := Vector3.ZERO
+var _lids := -1                      # eyelid bone, animated on its own (blinking)
+var _eye := Vector3.ZERO             # left eyeball centre, model space
+var _blink := 2.0
 
 # pose being built this frame
 var _q: Array[Quaternion] = []
@@ -62,6 +73,12 @@ func _ready() -> void:
 		skeleton.set_bone_rest(i, Transform3D(Basis(), off))
 		_cur.append(Quaternion.IDENTITY)
 		_q.append(Quaternion.IDENTITY)
+	# both eyelids hinge on one bone through the two eyeball centres
+	_eye = _eye_centre()
+	_lids = skeleton.add_bone("lids")
+	skeleton.set_bone_parent(_lids, _idx["head"])
+	skeleton.set_bone_rest(_lids, Transform3D(Basis(), Vector3(0, _eye.y, _eye.z) - _pos("head")))
+	_idx["lids"] = _lids
 	skeleton.reset_bone_poses()
 	var mi := MeshInstance3D.new()
 	mi.name = "Body"
@@ -120,23 +137,34 @@ func _tube(st: SurfaceTool, a: Vector3, b: Vector3, ra: Vector2, rb: Vector2, bo
 				st.add_index(ring0); st.add_index(ring0 + s + 1); st.add_index(ring0 + s)
 
 
-## Ellipsoid on one bone (head); `paint` picks the colour per vertex.
-func _blob(st: SurfaceTool, c: Vector3, r: Vector3, bone: String, paint: Callable) -> void:
+## Ellipsoid on one bone; `paint` picks the colour per vertex. `shape` may displace the surface
+## (gets the unit direction in the blob's frame and the offset from the centre), `frame` turns
+## the ellipsoid. Normals are taken from the displaced surface.
+func _blob(st: SurfaceTool, c: Vector3, r: Vector3, bone: String, paint: Callable, shape := Callable(), rings := 10, seg := 14, frame := Basis()) -> void:
 	var bi: int = _idx[bone]
 	var base := _vcount
-	var rings := 10
-	var seg := 14
+	var at := func(v: float, u: float) -> Vector3:
+		var n := Vector3(sin(v) * sin(u), cos(v), sin(v) * cos(u))
+		var d: Vector3 = frame * (n * r)
+		if shape.is_valid():
+			d = shape.call(n, d)
+		return c + d
+	var e := 0.004
 	for i in rings + 1:
 		var v := PI * i / rings
 		for s in seg:
 			var u := TAU * s / seg
 			var n := Vector3(sin(v) * sin(u), cos(v), sin(v) * cos(u))
-			var p := c + n * r
+			var nrm: Vector3 = (at.call(v + e, u) - at.call(v - e, u)).cross(at.call(v, u + e) - at.call(v, u - e))
+			if nrm.length_squared() < 1e-14:
+				nrm = frame * n
+			elif nrm.dot(frame * n) < 0.0:
+				nrm = -nrm
 			st.set_color(paint.call(n))
-			st.set_normal(n)
+			st.set_normal(nrm.normalized())
 			st.set_bones(PackedInt32Array([bi, 0, 0, 0]))
 			st.set_weights(PackedFloat32Array([1, 0, 0, 0]))
-			st.add_vertex(p)
+			st.add_vertex(at.call(v, u))
 			_vcount += 1
 	for i in rings:
 		for s in seg:
@@ -149,6 +177,93 @@ func _blob(st: SurfaceTool, c: Vector3, r: Vector3, bone: String, paint: Callabl
 var _vcount := 0
 
 
+# ---------------------------------------------------------------- face
+
+## Gaussian bump on the head in yaw/pitch space.
+static func _g(ax: float, ay: float, cx: float, cy: float, sx: float, sy: float) -> float:
+	return exp(-pow((ax - cx) / sx, 2.0) - pow((ay - cy) / sy, 2.0))
+
+
+static func _yaw_pitch(n: Vector3) -> Vector2:
+	return Vector2(atan2(n.x, n.z), asin(clampf(n.y, -1.0, 1.0)))
+
+
+static func _dir(yaw: float, pitch: float) -> Vector3:
+	return Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
+
+
+## Sculpts the head ellipsoid: narrower jaw, chin, nose, brow ridge, eye sockets, cheekbones, lips.
+func _head_shape(n: Vector3, d: Vector3) -> Vector3:
+	var low := smoothstep(-0.05, -0.9, n.y)
+	d.x *= 1.0 - 0.26 * low
+	var a := _yaw_pitch(n)
+	var out := 0.0
+	out += _g(a.x, a.y, 0.0, -0.13, 0.09, 0.19) * 0.03         # nose
+	out += _g(a.x, a.y, 0.0, -0.25, 0.16, 0.06) * 0.006      # nostril wings
+	for sx: float in [-1.0, 1.0]:
+		out -= _g(a.x, a.y, EYE_DIR.x * sx, EYE_DIR.y, 0.16, 0.09) * 0.01   # eye sockets
+		out += _g(a.x, a.y, 0.34 * sx, 0.21, 0.28, 0.06) * 0.006           # brow ridge
+		out += _g(a.x, a.y, 0.62 * sx, -0.15, 0.25, 0.16) * 0.006          # cheekbones
+	out += _g(a.x, a.y, 0.0, -0.74, 0.28, 0.14) * 0.012       # chin
+	out += _g(a.x, a.y, 0.0, -0.39, 0.2, 0.06) * 0.005        # lips
+	return d + n * out
+
+
+func _head_paint(n: Vector3) -> Color:
+	var a := _yaw_pitch(n)
+	var col := skin
+	for sx: float in [-1.0, 1.0]:
+		col = col.lerp(Color(0.86, 0.52, 0.46), _g(a.x, a.y, 0.6 * sx, -0.22, 0.25, 0.18) * 0.3)    # cheeks
+		col = col.lerp(skin * 0.8, _g(a.x, a.y, EYE_DIR.x * sx, EYE_DIR.y - 0.06, 0.16, 0.08) * 0.5)  # under the eyes
+		col = col.lerp(Color(0.35, 0.2, 0.17), _g(a.x, a.y, 0.06 * sx, -0.27, 0.05, 0.035) * 0.7)  # nostrils
+	col = col.lerp(Color(0.68, 0.36, 0.34), clampf(_g(a.x, a.y, 0.0, -0.39, 0.18, 0.07) * 1.6, 0.0, 1.0))  # lips
+	col = col.lerp(Color(0.25, 0.12, 0.1), clampf(_g(a.x, a.y, 0.0, -0.39, 0.15, 0.03) * 1.3, 0.0, 1.0))  # mouth line
+	# hair showing under the beanie at the sides and back, with a ragged edge
+	var up := Vector3(0, cos(BEANIE_TILT), -sin(BEANIE_TILT))
+	var h := n.dot(up) - BEANIE_EDGE + 0.13 + 0.025 * sin(a.x * 15.0)
+	if n.z < 0.45:
+		var burns := 0.08 * smoothstep(0.0, 0.3, n.z) * smoothstep(0.2, 0.9, absf(n.x))   # sideburns
+		if h + burns > 0.0:
+			col = hair
+	return col
+
+
+func _eye_centre() -> Vector3:
+	var n := _dir(EYE_DIR.x, EYE_DIR.y)
+	var surface := HEAD_C + _head_shape(n, n * HEAD_R)
+	return surface - n * (EYE_R - 0.008)
+
+
+func _build_face(st: SurfaceTool) -> void:
+	var lid_skin := skin * 0.93
+	var eyeball := func(n: Vector3) -> Color: return Color(0.03, 0.03, 0.03) if n.z > 0.96 else (iris if n.z > 0.8 else Color(0.8, 0.77, 0.72))
+	var lid_paint := func(n: Vector3) -> Color: return Color(0.1, 0.07, 0.05) if n.y < 0.8 else lid_skin
+	var lid_upper := func(n: Vector3, d: Vector3) -> Vector3: return d if n.y > 0.72 else d * 0.7
+	var lid_lower := func(n: Vector3, d: Vector3) -> Vector3: return d if n.y < -0.72 else d * 0.7
+	var flat := func(col: Color) -> Callable: return func(_n: Vector3) -> Color: return col
+	var ear_paint := func(n: Vector3) -> Color: return skin.lerp(Color(0.85, 0.55, 0.48), 0.3 + 0.3 * absf(n.x))
+	for sx: float in [-1.0, 1.0]:
+		var c := Vector3(_eye.x * sx, _eye.y, _eye.z)
+		_blob(st, c, Vector3.ONE * EYE_R, "head", eyeball, Callable(), 10, 14)
+		# upper lid hangs on the blink bone: a shell over the top of the eye, collapsed inside elsewhere
+		_blob(st, c, Vector3.ONE * EYE_R * 1.18, "lids", lid_paint, lid_upper, 12, 14)
+		_blob(st, c, Vector3.ONE * EYE_R * 1.12, "head", flat.call(lid_skin), lid_lower, 12, 14)
+		# brow
+		var bn := _dir(0.34 * sx, 0.22)
+		var bc := HEAD_C + _head_shape(bn, bn * HEAD_R) + bn * 0.002
+		_blob(st, bc, Vector3(0.024, 0.0045, 0.006), "head", flat.call(hair), Callable(), 6, 10, Basis(Vector3.UP, 0.34 * sx) * Basis(Vector3.FORWARD, 0.12 * sx))
+		# ear
+		_blob(st, HEAD_C + Vector3(0.1 * sx, -0.008, -0.012), Vector3(0.012, 0.03, 0.02), "head", ear_paint, Callable(), 8, 12, Basis(Vector3.RIGHT, -0.15))
+	# beanie: a shell over the head with a turned-up cuff, collapsed inside below its edge
+	var knit := func(n: Vector3) -> Color: return beanie * (1.0 if n.y > BEANIE_EDGE + 0.07 else 0.8)
+	var cap := func(n: Vector3, d: Vector3) -> Vector3:
+		var e := n.y - BEANIE_EDGE
+		if e > 0.07:
+			return d
+		return d * 1.04 if e > -0.005 else d * 0.85
+	_blob(st, HEAD_C + Vector3(0, 0.004, -0.004), HEAD_R * 1.07, "head", knit, cap, 30, 40, Basis(Vector3.RIGHT, -BEANIE_TILT))
+
+
 func _build_mesh() -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -158,11 +273,9 @@ func _build_mesh() -> ArrayMesh:
 	_tube(st, Vector3(0, 1.0, 0.0), Vector3(0, 1.28, 0.0), Vector2(0.165, 0.12), Vector2(0.18, 0.125), "spine", "hips", hoodie, 0.08)
 	_tube(st, Vector3(0, 1.24, 0.0), Vector3(0, 1.5, -0.01), Vector2(0.19, 0.13), Vector2(0.14, 0.1), "chest", "spine", hoodie, 0.08)
 	_tube(st, Vector3(0, 1.44, -0.06), Vector3(0, 1.56, -0.08), Vector2(0.11, 0.06), Vector2(0.09, 0.05), "chest", "", hoodie, 0.0, 3)   # hood
-	_tube(st, Vector3(0, 1.45, 0), Vector3(0, 1.6, 0.01), Vector2(0.05, 0.05), Vector2(0.048, 0.048), "neck", "chest", skin, 0.04)
-	_blob(st, Vector3(0, 1.67, 0.015), Vector3(0.105, 0.125, 0.115), "head", func(n: Vector3) -> Color:
-		if n.y > 0.15 - n.z * 0.25:
-			return beanie
-		return skin)
+	_tube(st, Vector3(0, 1.45, 0), Vector3(0, 1.6, 0.01), Vector2(0.056, 0.054), Vector2(0.052, 0.05), "neck", "chest", skin, 0.04)
+	_blob(st, HEAD_C, HEAD_R, "head", _head_paint, _head_shape, 64, 72)
+	_build_face(st)
 	for side: float in [1.0, -1.0]:
 		var s := "L" if side > 0 else "R"
 		var x := 0.19 * side
@@ -235,6 +348,15 @@ func _apply(dt: float, rate: float) -> void:
 		skeleton.set_bone_pose_rotation(i, _cur[i])
 	_cur_hips = _cur_hips.lerp(_hips, a)
 	skeleton.set_bone_pose_position(0, _offset[0] + _cur_hips)
+	# blink every few seconds
+	_blink -= dt
+	var shut := 0.0
+	if _blink < 0.0:
+		var k := -_blink / 0.16
+		shut = sin(minf(k, 1.0) * PI)
+		if k >= 1.0:
+			_blink = randf_range(1.5, 5.0)
+	skeleton.set_bone_pose_rotation(_lids, Quaternion(Vector3.RIGHT, shut * 1.0))
 
 
 # ---------------------------------------------------------------- poses

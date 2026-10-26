@@ -1,0 +1,178 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/world_builder.gd" id="2_world"]
+[ext_resource type="Script" path="res://scripts/skater.gd" id="3_skater"]
+[ext_resource type="Script" path="res://scripts/chase_camera.gd" id="4_cam"]
+[ext_resource type="Script" path="res://scripts/hud.gd" id="5_hud"]
+[ext_resource type="Script" path="res://scripts/grass.gd" id="6_grass"]
+
+[sub_resource type="PhysicalSkyMaterial" id="sky_mat"]
+rayleigh_coefficient = 2.0
+mie_coefficient = 0.004
+turbidity = 3.5
+sun_disk_scale = 1.5
+ground_color = Color(0.32, 0.34, 0.3, 1)
+energy_multiplier = 1.4
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
+reflected_light_source = 2
+ambient_light_energy = 1.25
+tonemap_mode = 4
+tonemap_exposure = 1.1
+tonemap_white = 6.0
+ssao_enabled = true
+ssao_radius = 1.6
+ssao_intensity = 1.6
+ssao_power = 1.4
+glow_enabled = true
+glow_intensity = 0.35
+glow_bloom = 0.04
+fog_enabled = true
+fog_light_color = Color(0.7, 0.76, 0.86, 1)
+fog_density = 0.0006
+fog_aerial_perspective = 0.6
+fog_sky_affect = 0.25
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.0012
+volumetric_fog_albedo = Color(0.9, 0.92, 1, 1)
+volumetric_fog_length = 160.0
+adjustment_enabled = true
+adjustment_contrast = 1.04
+adjustment_saturation = 1.08
+
+[sub_resource type="CapsuleShape3D" id="capsule"]
+radius = 0.3
+height = 1.7
+
+[sub_resource type="LabelSettings" id="big"]
+font_size = 26
+font_color = Color(1, 0.86, 0.2, 1)
+outline_size = 6
+outline_color = Color(0.1, 0.05, 0.02, 1)
+
+[sub_resource type="LabelSettings" id="small"]
+font_size = 15
+outline_size = 4
+outline_color = Color(0, 0, 0, 1)
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8192, 0.3207, -0.4755, 0.0000, 0.8290, 0.5592, 0.5736, -0.4581, 0.6791, 0, 50, 0)
+light_color = Color(1, 0.93, 0.8, 1)
+light_energy = 1.6
+light_angular_distance = 0.6
+shadow_enabled = true
+shadow_blur = 1.4
+directional_shadow_max_distance = 220.0
+directional_shadow_split_1 = 0.06
+directional_shadow_split_2 = 0.18
+directional_shadow_split_3 = 0.45
+
+[node name="World" type="Node3D" parent="."]
+script = ExtResource("2_world")
+
+[node name="Skater" type="CharacterBody3D" parent="."]
+script = ExtResource("3_skater")
+world_path = NodePath("../World")
+
+[node name="Collision" type="CollisionShape3D" parent="Skater"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.88, 0)
+shape = SubResource("capsule")
+
+[node name="Camera" type="Camera3D" parent="."]
+fov = 68.0
+far = 2200.0
+script = ExtResource("4_cam")
+target_path = NodePath("../Skater")
+
+[node name="Grass" type="Node3D" parent="."]
+script = ExtResource("6_grass")
+world_path = NodePath("../World")
+camera_path = NodePath("../Camera")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("5_hud")
+skater_path = NodePath("../Skater")
+
+[node name="Score" type="Label" parent="HUD"]
+offset_left = 16.0
+offset_top = 10.0
+offset_right = 320.0
+offset_bottom = 40.0
+label_settings = SubResource("big")
+
+[node name="Info" type="Label" parent="HUD"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -360.0
+offset_top = 12.0
+offset_right = -16.0
+offset_bottom = 40.0
+horizontal_alignment = 2
+label_settings = SubResource("big")
+
+[node name="Combo" type="Label" parent="HUD"]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 60.0
+offset_right = 300.0
+offset_bottom = 130.0
+horizontal_alignment = 1
+label_settings = SubResource("big")
+
+[node name="Flash" type="Label" parent="HUD"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -90.0
+offset_right = 200.0
+offset_bottom = -50.0
+horizontal_alignment = 1
+label_settings = SubResource("big")
+
+[node name="Balance" type="ProgressBar" parent="HUD"]
+visible = false
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -86.0
+offset_right = 110.0
+offset_bottom = -72.0
+min_value = -1.0
+max_value = 1.0
+step = 0.01
+show_percentage = false
+
+[node name="Help" type="Label" parent="HUD"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -30.0
+offset_right = -16.0
+offset_bottom = -8.0
+text = "W толчок/педали  S тормоз  A/D поворот  Пробел олли  J/K/L трюки  I грэб  F скейт/пешком  B BMX  R респаун  T спот  F2 быстрее"
+horizontal_alignment = 1
+label_settings = SubResource("small")

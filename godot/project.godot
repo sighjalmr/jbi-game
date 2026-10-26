@@ -1,0 +1,37 @@
+; Engine configuration file.
+; Godot 4.4+: open this folder in the Project Manager (Import -> project.godot).
+
+config_version=5
+
+[application]
+
+config/name="JBI (Godot prototype)"
+config/description="ЖБИ, Екатеринбург: прототип скейта на реальной карте района"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.4", "Forward Plus")
+
+[autoload]
+
+Controls="*res://scripts/controls.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1600
+window/size/window_height_override=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[physics]
+
+common/physics_ticks_per_second=60
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+textures/default_filters/anisotropic_filtering_level=3
+anti_aliasing/quality/msaa_3d=2
+lights_and_shadows/directional_shadow/size=4096
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
+environment/defaults/default_clear_color=Color(0.62, 0.72, 0.82, 1)
